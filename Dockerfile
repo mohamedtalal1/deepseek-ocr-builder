@@ -1,19 +1,19 @@
-FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
+FROM python:3.10-slim
 
 WORKDIR /app
 
+# System deps (minimal)
 RUN apt-get update && apt-get install -y \
-    python3 python3-pip git \
+    git \
     && rm -rf /var/lib/apt/lists/*
+
+# Prevent pip cache from filling disk
+ENV PIP_NO_CACHE_DIR=1
 
 RUN pip install --upgrade pip
 
-# Install PyTorch (CUDA 12.1)
-RUN pip install torch torchvision torchaudio \
-    --index-url https://download.pytorch.org/whl/cu121
-
-# Install vLLM (DeepSeek-OCR compatible)
-RUN pip install --upgrade vllm
+# Install vLLM (this pulls torch as needed)
+RUN pip install vllm
 
 # DeepSeek-OCR runtime deps
 RUN pip install addict matplotlib pillow
