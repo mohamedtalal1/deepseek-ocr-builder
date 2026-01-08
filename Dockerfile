@@ -1,33 +1,27 @@
-FROM vllm/vllm-openai:latest
+FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
 
-# Set working directory
 WORKDIR /app
 
-# Environment variables with defaults
-ENV MODEL_NAME="deepseek-ai/deepseek-vl2-small"
-ENV HOST="0.0.0.0"
-ENV PORT="8000"
-ENV MAX_MODEL_LEN="4096"
-ENV GPU_MEMORY_UTILIZATION="0.9"
-ENV TRUST_REMOTE_CODE="true"
+# System deps
+RUN apt-get update && apt-get install -y \
+    python3 python3-pip git \
+    && rm -rf /var/lib/apt/lists/*
 
-# Create a startup script for better configuration
-RUN echo '#!/bin/bash\n\
-python -m vllm.entrypoints.openai.api_server \
-  --model ${MODEL_NAME} \
-  --host ${HOST} \
-  --port ${PORT} \
-  --max-model-len ${MAX_MODEL_LEN} \
-  --gpu-memory-utilization ${GPU_MEMORY_UTILIZATION} \
-  --trust-remote-code \
-  ${VLLM_EXTRA_ARGS}' > /app/start.sh && chmod +x /app/start.sh
+RUN pip install --upgrade pip
 
-# Expose the API port
+# Install vLLM with DeepSeek-OCR support
+RUN pip install --upgrade vllm --torch-backend auto
+
+# DeepSeek-OCR runtime deps
+RUN pip install addict matplotlib pillow
+
+# Cache locations (important for Salad)
+ENV HF_HOME=/models
+ENV TRANSFORMERS_CACHE=/models
+
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
-
-# Run the server
-CMD ["/app/start.sh"]
+CMD ["vllm", "serve", "deepseek-ai/DeepSeek-OCR", \
+     "--logits_processors", "vllm.model_executor.models.deepseek_ocr:NGramPerReqLogitsProcessor", \
+     "--no-enable-prefix-caching", \
+     "--mm-processor-cache-gb", "0"]
