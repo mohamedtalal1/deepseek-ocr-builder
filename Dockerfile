@@ -8,8 +8,6 @@ RUN apt-get update && apt-get install -y \
 
 RUN pip install --upgrade pip
 
-RUN python -c "import vllm; print(vllm.__version__)"
-
 # Install PyTorch (CUDA 12.1)
 RUN pip install torch torchvision torchaudio \
     --index-url https://download.pytorch.org/whl/cu121
