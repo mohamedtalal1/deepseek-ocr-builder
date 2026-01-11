@@ -1,32 +1,70 @@
-name: Build and Push Docker Image
+name: Build and Push DeepSeek-OCR Docker Image
 
 on:
   push:
-    branches: [ "main" ]
-  workflow_dispatch:
+    branches: [ main ]
+    paths:
+      - 'Dockerfile'
+      - '.github/workflows/build-and-push.yml'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
+  build-and-push:
     runs-on: ubuntu-latest
-
+    
+    # Required permissions for GHCR
     permissions:
       contents: read
       packages: write
-
+    
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Log in to GHCR
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+      
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push
+      
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix={{branch}}-
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      
+      - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
-          push: true
-          tags: ghcr.io/${{ github.repository_owner }}/deepseek-ocr-vllm:latest
+          file: ./Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+      
+      - name: Image digest
+        run: echo ${{ steps.meta.outputs.digest }}
