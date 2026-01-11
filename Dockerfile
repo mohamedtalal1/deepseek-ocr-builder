@@ -1,29 +1,37 @@
-FROM python:3.10-slim
+# Stage 1: Download model
+FROM vllm/vllm-openai:latest AS model-downloader
 
-WORKDIR /app
+# Install huggingface-hub if not already available
+RUN pip install --no-cache-dir huggingface-hub
 
-# System deps (minimal)
-RUN apt-get update && apt-get install -y \
-    git \
-    && rm -rf /var/lib/apt/lists/*
+# Download the DeepSeek-OCR model and tokenizer
+RUN python3 -c "from transformers import AutoModel, AutoTokenizer; \
+    AutoModel.from_pretrained('deepseek-ai/DeepSeek-OCR', trust_remote_code=True); \
+    AutoTokenizer.from_pretrained('deepseek-ai/DeepSeek-OCR', trust_remote_code=True)"
 
-# Prevent pip cache from filling disk
-ENV PIP_NO_CACHE_DIR=1
+# Stage 2: Final runtime image
+FROM vllm/vllm-openai:latest
 
-RUN pip install --upgrade pip
+# Copy downloaded model cache from previous stage
+COPY --from=model-downloader /root/.cache /root/.cache
 
-# Install vLLM (this pulls torch as needed)
-RUN pip install vllm
+# Set environment variables
+ENV MODEL_NAME=deepseek-ai/DeepSeek-OCR
+ENV VLLM_ALLOW_LONG_MAX_MODEL_LEN=1
 
-# DeepSeek-OCR runtime deps
-RUN pip install addict matplotlib pillow
+# Healthcheck for container orchestration
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5m \
+  CMD curl -f http://localhost:8000/health || exit 1
 
-ENV HF_HOME=/models
-ENV TRANSFORMERS_CACHE=/models
-
+# Expose the vLLM serving port
 EXPOSE 8000
 
+# Default command (can be overridden in SaladCloud)
 CMD ["vllm", "serve", "deepseek-ai/DeepSeek-OCR", \
      "--logits_processors", "vllm.model_executor.models.deepseek_ocr:NGramPerReqLogitsProcessor", \
      "--no-enable-prefix-caching", \
-     "--mm-processor-cache-gb", "0"]
+     "--mm-processor-cache-gb", "0", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--gpu-memory-utilization", "0.9", \
+     "--max-model-len", "8192"]
